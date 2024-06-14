@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Server Debug</title>
+</head>
+
+<body>
+    <h1>File Server Debug</h1>
+
+    <h2>Upload File</h2>
+    <form id="uploadForm" enctype="multipart/form-data" method="post">
+        <input type="file" name="file" id="fileInput" required>
+        <button type="button" onclick="uploadFile()">Upload</button>
+    </form>
+    <div id="uploadResult"></div>
+
+    <h2>Download File</h2>
+    <form id="downloadForm">
+        <input type="text" id="downloadFileName" placeholder="Enter file name" required>
+        <button type="button" onclick="downloadFile()">Download</button>
+    </form>
+    <div id="downloadResult"></div>
+
+    <script>
+        function uploadFile() {
+            var form = document.getElementById('uploadForm');
+            var formData = new FormData(form);
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", "/drive/upload", true);
+            xhr.onload = function () {
+                if (xhr.status === 200) {
+                    document.getElementById('uploadResult').innerText = xhr.responseText;
+                } else {
+                    document.getElementById('uploadResult').innerText = "Upload failed: " + xhr.statusText;
+                }
+            };
+            xhr.send(formData);
+        }
+
+        function downloadFile() {
+            var fileName = document.getElementById('downloadFileName').value;
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "/drive/download/" + fileName, true);
+            xhr.responseType = "blob";
+            xhr.onload = function () {
+                if (xhr.status === 200) {
+                    var url = window.URL.createObjectURL(xhr.response);
+                    var a = document.createElement('a');
+                    a.href = url;
+                    a.download = fileName;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    document.getElementById('downloadResult').innerText = "File downloaded: " + fileName;
+                } else {
+                    document.getElementById('downloadResult').innerText = "Download failed: " + xhr.statusText;
+                }
+            };
+            xhr.send();
+        }
+    </script>
+</body>
+
+</html>
