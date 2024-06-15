@@ -11,6 +11,7 @@ import (
     "mime"
     "log"
     "encoding/json"
+    "net/url"
 )
 
 
@@ -25,10 +26,21 @@ func ServeIndex(w http.ResponseWriter, r *http.Request) {
 
 
 func UploadFile(w http.ResponseWriter, r *http.Request) {
+    dirName := strings.TrimPrefix(r.URL.Path, "/drive/upload/")
+    decodedDirName, err := url.QueryUnescape(dirName)
+    if err != nil {
+        http.Error(w, "Failed to decode directory name", http.StatusBadRequest)
+        return
+    }
+    dirName = decodedDirName
+
     if r.Method != http.MethodPost {
         http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
         return
     }
+
+    // アップロードサイズを大きくする
+    r.ParseMultipartForm(2 << 30) // 2GBに設定
 
     file, header, err := r.FormFile("file")
     if err != nil {
@@ -40,11 +52,15 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
     mutex.Lock()
     defer mutex.Unlock()
 
-    if _, err := os.Stat(filesDir); os.IsNotExist(err) {
-        os.Mkdir(filesDir, os.ModePerm)
+    fullDirPath := filepath.Join(filesDir, dirName)
+    if _, err := os.Stat(fullDirPath); os.IsNotExist(err) {
+        if err := os.MkdirAll(fullDirPath, os.ModePerm); err != nil {
+            http.Error(w, "Failed to create directory", http.StatusInternalServerError)
+            return
+        }
     }
 
-    filePath := filepath.Join(filesDir, header.Filename)
+    filePath := filepath.Join(fullDirPath, header.Filename)
     destFile, err := os.Create(filePath)
     if err != nil {
         http.Error(w, "Failed to create file", http.StatusInternalServerError)
@@ -57,8 +73,10 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    w.WriteHeader(http.StatusOK)
     fmt.Fprintf(w, "File uploaded successfully: %s\n", header.Filename)
 }
+
 
 func DownloadFile(w http.ResponseWriter, r *http.Request) {
     queryValues := r.URL.Query()
@@ -68,6 +86,12 @@ func DownloadFile(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "File name is required", http.StatusBadRequest)
         return
     }
+    decodedDirName, err := url.QueryUnescape(fileName)
+    if err != nil {
+        http.Error(w, "Failed to decode directory name", http.StatusBadRequest)
+        return
+    }
+    fileName = decodedDirName
 
     mutex.Lock()
     defer mutex.Unlock()
@@ -104,6 +128,12 @@ func DownloadFile(w http.ResponseWriter, r *http.Request) {
 
 func CreateDirectory(w http.ResponseWriter, r *http.Request) {
     dirName := strings.TrimPrefix(r.URL.Path, "/drive/create/")
+    decodedDirName, err := url.QueryUnescape(dirName)
+    if err != nil {
+        http.Error(w, "Failed to decode directory name", http.StatusBadRequest)
+        return
+    }
+    dirName = decodedDirName
     if dirName == "" {
         http.Error(w, "Directory name is required", http.StatusBadRequest)
         return
@@ -123,6 +153,12 @@ func CreateDirectory(w http.ResponseWriter, r *http.Request) {
 
 func DeleteItem(w http.ResponseWriter, r *http.Request) {
     itemName := strings.TrimPrefix(r.URL.Path, "/drive/delete/")
+    decodedDirName, err := url.QueryUnescape(itemName)
+    if err != nil {
+        http.Error(w, "Failed to decode directory name", http.StatusBadRequest)
+        return
+    }
+    itemName = decodedDirName
     if itemName == "" {
         http.Error(w, "Item name is required", http.StatusBadRequest)
         return
@@ -156,10 +192,35 @@ func DeleteItem(w http.ResponseWriter, r *http.Request) {
         fmt.Fprintf(w, "File deleted successfully: %s\n", itemName)
     }
 }
+func formatFileSize(size int64) string {
+    const (
+        GB = 1 << 30
+        MB = 1 << 20
+        KB = 1 << 10
+    )
+
+    switch {
+    case size >= GB:
+        return fmt.Sprintf("%.2f GB", float64(size)/GB)
+    case size >= MB:
+        return fmt.Sprintf("%.2f MB", float64(size)/MB)
+    case size >= KB:
+        return fmt.Sprintf("%.2f KB", float64(size)/KB)
+    default:
+        return fmt.Sprintf("%d bytes", size)
+    }
+}
+
 
 
 func ListItems(w http.ResponseWriter, r *http.Request) {
     dirName := strings.TrimPrefix(r.URL.Path, "/drive/list/")
+    decodedDirName, err := url.QueryUnescape(dirName)
+    if err != nil {
+        http.Error(w, "Failed to decode directory name", http.StatusBadRequest)
+        return
+    }
+    dirName = decodedDirName
     dirPath := filepath.Join(filesDir, dirName)
 
     mutex.Lock()
@@ -192,7 +253,7 @@ func ListItems(w http.ResponseWriter, r *http.Request) {
         }
 
         if !file.IsDir() {
-            item["size"] = info.Size()
+            item["size"] = formatFileSize(info.Size())
         }
 
         items[file.Name()] = item
